@@ -132,6 +132,11 @@ UPROGS=\
 	$U/_grind\
 	$U/_wc\
 	$U/_zombie\
+	#$U/_sleep\
+	$U/_matmul\
+	$U/_time1\
+	$U/_pinpong\
+	$U/_pipe1\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
