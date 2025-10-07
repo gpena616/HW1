@@ -38,6 +38,16 @@ sys_wait(void)
   return wait(p);
 }
 
+// wait2()
+uint64
+sys_wait2(void)
+{
+  uint64 status_addr, rusage_addr;
+  if(argaddr(0,&status_addr)<0 || argaddr(1,&rusage_addr)<0);
+    return -1;
+  return wait2(status_addr,rusage_addr)
+}
+
 uint64
 sys_sbrk(void)
 {

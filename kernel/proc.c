@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "pstat.h"
 
 struct cpu cpus[NCPU];
 
@@ -402,8 +403,7 @@ wait(uint64 addr)
         if(np->state == ZOMBIE){
           // Found one.
           pid = np->pid;
-          if(addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
-                                  sizeof(np->xstate)) < 0) {
+          if(addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,sizeof(np->xstate)) < 0) {
             release(&np->lock);
             release(&wait_lock);
             return -1;
@@ -427,7 +427,61 @@ wait(uint64 addr)
     sleep(p, &wait_lock);  //DOC: wait-sleep
   }
 }
+//wait2 function copy from wait2 but with an additional argument
+int
+wait2(uint64 addr, uint64 rusage_addr)
+{
+  struct proc *np;
+  int havekids, pid;
+  struct rusage ru;
 
+  acquire(&wait_lock);
+  for(;;){
+    havekids = 0;
+    for(np = proc; np < &proc[NPROC]; np++){
+      if(np->parent == p){
+        acquire(&np->lock);
+        havekids = 1;
+
+        if(np->state == ZOMBIE){
+          pid = np->pid;
+
+          // Copy exit status to user
+          if(addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate, sizeof(np->xstate)) < 0) {
+            release(&np->lock);
+            release(&wait_lock);
+            return -1;
+          }
+
+          // Fill rusage struct with CPU time
+          ru.cputime = np->cputime;
+
+          // Copy rusage struct to user
+          if(rusage_addr != 0 && copyout(p->pagetable, rusage_addr, (char *)&ru, sizeof(ru)) < 0) {
+            release(&np->lock);
+            release(&wait_lock);
+            return -1;
+          }
+
+          freeproc(np);
+          release(&np->lock);
+          release(&wait_lock);
+          return pid;
+        }
+
+        release(&np->lock);
+      }
+    }
+
+    if(!havekids || p->killed){
+      release(&wait_lock);
+      return -1;
+    }
+
+    sleep(p, &wait_lock);
+  }
+
+}
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
