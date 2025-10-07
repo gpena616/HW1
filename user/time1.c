@@ -9,7 +9,7 @@ int main(int argc, char *argv[]){
         exit(1);
     }
 
-    int s = uptime(); 
+    int s = uptime(); //start
     int pid = fork();
 
     if(pid<0){
