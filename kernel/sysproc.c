@@ -16,7 +16,138 @@ sys_exit(void)
   exit(n);
   return 0;  // not reached
 }
+struct semaphore *s;
+uint64
+sys_sem_init(void)
+{
+  uint64 uaddr;          // user pointer to sem_t
+  int pshared;           // ignored in this xv6 implementation
+  int value;             // initial value
+  struct proc *p = myproc();
 
+  if (argaddr(0, &uaddr) < 0 || argint(1, &pshared) < 0 || argint(2, &value) < 0)
+    return -1;
+
+  int idx = semalloc();
+  if (idx < 0)
+    return -1;
+
+  // initialize the semaphore value
+  struct semaphore *s = &semtable.sem[idx];
+  acquire(&s->lock);
+  if (!s->valid) {   // sanity check
+    release(&s->lock);
+    return -1;
+  }
+  s->count = value;
+  release(&s->lock);
+
+  sem_t semval = idx;  // user-visible sem_t is just the index
+
+  if (copyout(p->pagetable, uaddr, (char *)&semval, sizeof(semval)) < 0) {
+    semdealloc(idx);
+    return -1;
+  }
+
+  return 0;
+}
+
+uint64
+sys_sem_wait(void)
+{
+  uint64 uaddr;       // user pointer to sem_t
+  struct proc *p = myproc();
+  sem_t idx;
+
+  if (argaddr(0, &uaddr) < 0)
+    return -1;
+
+  if (copyin(p->pagetable, (char *)&idx, uaddr, sizeof(idx)) < 0)
+    return -1;
+
+  if (idx < 0 || idx >= NSEM)
+    return -1;
+
+  struct semaphore *s = &semtable.sem[idx];
+
+  acquire(&s->lock);
+  if (!s->valid) {
+    release(&s->lock);
+    return -1;
+  }
+
+  // classic counting semaphore wait(P)
+  while (s->count == 0) {
+    // sleep on the semaphore; sleep releases s->lock and reacquires it on wakeup
+    sleep(s, &s->lock);
+
+    if (!s->valid) {    // if it was destroyed while we were asleep
+      release(&s->lock);
+      return -1;
+    }
+  }
+
+  s->count--;
+  release(&s->lock);
+  return 0;
+}
+
+uint64
+sys_sem_post(void)
+{
+  uint64 uaddr;       // user pointer to sem_t
+  struct proc *p = myproc();
+  sem_t idx;
+
+  if (argaddr(0, &uaddr) < 0)
+    return -1;
+
+  if (copyin(p->pagetable, (char *)&idx, uaddr, sizeof(idx)) < 0)
+    return -1;
+
+  if (idx < 0 || idx >= NSEM)
+    return -1;
+
+  struct semaphore *s = &semtable.sem[idx];
+
+  acquire(&s->lock);
+  if (!s->valid) {
+    release(&s->lock);
+    return -1;
+  }
+
+  // classic semaphore signal(V)
+  s->count++;
+  wakeup(s);   // wake up any sleepers waiting on this semaphore
+  release(&s->lock);
+
+  return 0;
+}
+
+uint64
+sys_sem_destroy(void)
+{
+  uint64 uaddr;       // user pointer to sem_t
+  struct proc *p = myproc();
+  sem_t idx;
+
+  if (argaddr(0, &uaddr) < 0)
+    return -1;
+
+  if (copyin(p->pagetable, (char *)&idx, uaddr, sizeof(idx)) < 0)
+    return -1;
+
+  if (idx < 0 || idx >= NSEM)
+    return -1;
+
+  // mark it free in the kernel table
+  semdealloc(idx);
+
+  // optional: you could also write -1 back to *sem in user space
+  // to indicate it's destroyed, but the lab doesn’t require it.
+
+  return 0;
+}
 uint64
 sys_getpid(void)
 {
